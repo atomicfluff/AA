@@ -1,0 +1,234 @@
+
+
+(define WIDTH 800)
+
+(define ALIEN-INIT-Y 50)
+
+(define INIT-X (/ WIDTH 2))
+
+; An ally rocket, (make-ar x n), is a structure where x is a number, and n is a string.
+(define-struct ar (x name))
+
+; An alien is a posn
+; Example
+(define ALIEN (make-posn (/ WIDTH 2) ALIEN-INIT-Y))
+
+; TEMPLATE FOR FUNCTIONS ON ALIENS
+; 
+; ;Contract: 
+; ;  f-on-alien: alien --> ???
+; ;Purpose:
+; (define (f-on-alien an-alien)
+;   ; INVENTORY
+;   ; an-alien is a posn
+;   ; (posn-x an-alien) is the x coordinate of an-alien
+;   ; (posn-y an-alien) is the y coordinate of an-alien
+;   ...)
+
+
+; A list-of-aliens (loa) is  either:
+; 1. empty
+; 2. (cons a l), where a is an alien and l is a loa
+
+
+;EXAMPLES
+(define LOA1 empty)
+(define LOA2 (cons ALIEN LOA1))
+
+(define INIT-ALIEN-ARMY ; 3 rows of aliens with 9 aliens per row
+  (build-list 27  (lambda (n)
+                    (make-posn
+                     (local [(define rem (remainder n 9))]
+                       (cond	[(= rem 0) (- (/ WIDTH 2) 300)]
+                                [(= rem 1) (- (/ WIDTH 2) 225)]
+                                [(= rem 2) (- (/ WIDTH 2) 150)]
+                                [(= rem 3) (- (/ WIDTH 2) 75)]
+                                [(= rem 4) (/ WIDTH 2)]
+                                [(= rem 5) (+ (/ WIDTH 2) 75)]
+                                [(= rem 6) (+ (/ WIDTH 2) 150)]
+                                [(= rem 7) (+ (/ WIDTH 2) 225)]
+                                [else (+ (/ WIDTH 2) 300)]))
+                     (local [(define quot (quotient n 9))]
+                       (cond	[(= quot 0) 50]
+                                [(= quot 1) 125]
+                                [else 200]))))))
+
+; ; f-on-loa: loa --> ???
+; ; PURPOSE:
+; (define (f-on-loa a-loa)
+;   (cond [(empty? a-loa) ...]
+;         [else ...(f-on-alien (first a-loa))...(f-on-loa (rest a-loa))]))
+
+
+
+
+; A universe is either
+; 1. empty
+; 2. (cons w l), where w is an iworld and l is a universe
+
+(define initU empty)
+
+; marshalling
+
+; string --> message
+(define (marsh-req-world str)
+  (list 'req-world str))
+
+(check-expect (marsh-req-world "Kay") (list 'req-world "Kay"))
+
+; ar --> message
+(define (marsh-new-ally an-ar)
+  (list 'new-ally (ar-x an-ar) (ar-name an-ar)))
+
+(check-expect (marsh-new-ally (make-ar 30 "Megan")) (list 'new-ally 30 "Megan"))
+
+; loa --> message
+(define (marsh-init-army a-loa)
+  (cons 'init-army 
+        (map (lambda (a)  (list (posn-x a)  (posn-y a))) 
+             a-loa)))
+
+(check-expect (marsh-init-army (list (make-posn 99 99) (make-posn 34 34)))
+              (list 'init-army (list 99 99) (list 34 34)))
+
+; string --> message
+(define (marsh-rm-ally str)
+  (list 'rm-ally str))
+
+(check-expect (marsh-rm-ally "Dana") (list 'rm-ally "Dana"))
+
+; add-new-world: unistate iworld --> bundle
+(define (add-new-world u w) 
+  (make-bundle 
+   (cons w u)
+   (cond [(not (empty? u)) 
+          (cons (make-mail (first u) (marsh-req-world (iworld-name w)))
+                (map (lambda (iw) (make-mail iw (marsh-new-ally (make-ar INIT-X
+                                                                         (iworld-name w)))))
+                     u))]
+         [else (list (make-mail w (marsh-init-army INIT-ALIEN-ARMY)))])
+   empty))
+
+; test for joining an empty universe
+(check-expect (add-new-world '() iworld1)
+              (make-bundle
+               (list iworld1)
+               (list
+                (make-mail
+                 iworld1
+                 (list
+                  'init-army
+                  (list 100 50)
+                  (list 175 50)
+                  (list 250 50)
+                  (list 325 50)
+                  (list 400 50)
+                  (list 475 50)
+                  (list 550 50)
+                  (list 625 50)
+                  (list 700 50)
+                  (list 100 125)
+                  (list 175 125)
+                  (list 250 125)
+                  (list 325 125)
+                  (list 400 125)
+                  (list 475 125)
+                  (list 550 125)
+                  (list 625 125)
+                  (list 700 125)
+                  (list 100 200)
+                  (list 175 200)
+                  (list 250 200)
+                  (list 325 200)
+                  (list 400 200)
+                  (list 475 200)
+                  (list 550 200)
+                  (list 625 200)
+                  (list 700 200))))
+               '()))
+
+; test for joining non-empty universe
+(check-expect (add-new-world (list iworld2) iworld1)
+              (make-bundle
+               (list iworld1 iworld2)
+               (list
+                (make-mail iworld2 (list 'req-world "iworld1"))
+                (make-mail iworld2 (list 'new-ally 400 "iworld1")))
+               '()))
+
+
+  
+; receive-message: universe iworld --> bundle
+(define (receive-message u w msg)
+  (local [; rm-world: symbol universe --> universe
+          (define (rm-world name u)
+            (filter (lambda (iw) (not (string=? name (iworld-name iw)))) u))
+
+          ; get-world: string universe --> iworld
+          (define (get-world nm u)
+            (first (filter (lambda (iw) (string=? nm (iworld-name iw))) u)))]
+    (cond [(symbol=? (first msg) 'rocket-move)
+           (make-bundle u
+                        (local [(define mail-list (rm-world (iworld-name w) u))]
+                          (map (lambda (iw) (make-mail iw msg)) 
+                               mail-list))
+                        empty)]
+          [(symbol=? (first msg) 'new-shot)
+           (make-bundle u
+                        (local [(define mail-list (rm-world (iworld-name w) u))]
+                          (map (lambda (iw) (make-mail iw msg)) mail-list))
+                        empty)]
+          [(symbol=? (first msg) 'world)
+           (make-bundle u
+                        (list (make-mail (get-world (second msg) u)
+                                         msg))
+                        empty)]
+          [else (error "Unknown message type sent to the server")])))
+
+(check-expect
+ (receive-message (list iworld1 iworld2) 
+                  iworld2
+                  (list 'rocket-move 300 "Kika"))
+ (make-bundle (list iworld1 iworld2)
+              (list (make-mail iworld1 (list 'rocket-move 300 "Kika")))
+              '()))
+
+(check-expect
+ (receive-message (list iworld1 iworld2) 
+                  iworld1
+                  (list 'new-shot 30 232))
+ (make-bundle (list iworld1 iworld2)
+              (list (make-mail iworld2 (list 'new-shot 30 232)))
+              '()))
+
+(check-expect 
+ (receive-message (list iworld1 iworld2) 
+                  iworld2 
+                  (list 'world "iworld1" empty empty "right" empty))
+ (make-bundle (list iworld1 iworld2)
+              (list (make-mail iworld1
+                               (list 'world "iworld1" empty empty "right" empty)))
+              empty))
+
+; rm-this-world: universe iworld --> bundle
+(define (rm-this-world u iw)
+  (local [; rm-world: string universe --> universe
+          (define (rm-world name u)
+            (filter (lambda (iw) (not (string=? name (iworld-name iw)))) u))
+
+          (define new-u (rm-world (iworld-name iw) u))]
+    (make-bundle new-u
+                 (map (lambda (w) (make-mail w (marsh-rm-ally (iworld-name iw)))) new-u)
+                 '())))
+
+(check-expect (rm-this-world (list iworld1 iworld2 iworld3)  iworld2)
+              (make-bundle (list iworld1 iworld3)
+                           (list (make-mail iworld1 (marsh-rm-ally "iworld2"))
+                                 (make-mail iworld3 (marsh-rm-ally "iworld2")))
+                           '()))
+
+
+(universe initU
+          (on-new add-new-world)
+          (on-msg receive-message)
+          (on-disconnect rm-this-world))
